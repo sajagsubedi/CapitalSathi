@@ -22,6 +22,7 @@ export const authOptions: NextAuthOptions = {
       },
       async authorize(credentials) {
         await connectDb();
+        console.log("he=re")
         try {
           const { username, password } =
             await signInSchema.parseAsync(credentials);

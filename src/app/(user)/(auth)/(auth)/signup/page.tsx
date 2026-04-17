@@ -1,300 +1,255 @@
 "use client";
+
 import Link from "next/link";
+import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { signUpSchema } from "@/schemas/signUpSchema";
-import { LoaderCircle, Plus } from "lucide-react";
+import { Loader2, Eye, EyeOff, TrendingUp, AlertCircle } from "lucide-react";
 import { toast } from "react-toastify";
 import { z } from "zod";
-import { ChangeEventHandler, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useDebounceValue } from "usehooks-ts";
-import { ApiResponse } from "@/types/ApiResponse";
 import axios, { AxiosError } from "axios";
-import Image from "next/image";
-import Button from "@/components/shared/Button";
 
-export default function Page() {
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Card,
+  CardContent,
+  CardFooter,
+  CardHeader,
+  CardDescription,
+  CardTitle,
+} from "@/components/ui/card";
+
+export default function SignupPage() {
+  const { status } = useSession();
+  const router = useRouter();
+
+  const [showPassword, setShowPassword] = useState(false);
+  const [isCheckingUsername, setIsCheckingUsername] = useState(false);
+  const [usernameMessage, setUsernameMessage] = useState("");
+  const [username, setUsername] = useState("");
+
+  const [debouncedUsername] = useDebounceValue(username, 400);
+
   const {
     register,
     handleSubmit,
-    setValue,
-    formState: { isSubmitting, errors },
+    formState: { errors, isSubmitting },
+    setError,
   } = useForm<z.infer<typeof signUpSchema>>({
     resolver: zodResolver(signUpSchema),
     defaultValues: {
-      profilePicture: undefined,
       fullName: "",
-      email: "",
       username: "",
       password: "",
     },
   });
 
-  const [profilePictureSrc, setProfilePictureSrc] =
-    useState("/assets/user.png");
-
-  const [username, setUsername] = useState("");
-  const [usernameMessage, setUsernameMessage] = useState(""); //message from api on checking username validation
-  const [isCheckingUsername, setIsCheckingUsername] = useState(false); //for showing loader below username input
-  const [debouncedUsername] = useDebounceValue(username, 300);
-
+  // Redirect if already logged in
   useEffect(() => {
-    const checkUserNameUnique = async () => {
-      if (debouncedUsername) {
-        setIsCheckingUsername(true);
-        setUsernameMessage("");
-        try {
-          const response = await axios.get<ApiResponse>(
-            `/api/auth/check-username-unique?username=${debouncedUsername}`
-          );
-          setUsernameMessage(response?.data?.message);
-        } catch (error) {
-          const axiosError = error as AxiosError<ApiResponse>;
-          setUsernameMessage(
-            axiosError?.response?.data?.message || "Error checking username"
-          );
-        } finally {
-          setIsCheckingUsername(false);
-        }
+    if (status === "authenticated") router.replace("/dashboard");
+  }, [status, router]);
+
+  // Username availability check
+  useEffect(() => {
+    const checkUsername = async () => {
+      if (!debouncedUsername) return;
+
+      setIsCheckingUsername(true);
+      setUsernameMessage("");
+
+      try {
+        const response = await axios.get<{ message?: string }>(
+          `/api/auth/check-username-unique?username=${debouncedUsername}`
+        );
+
+        setUsernameMessage(response?.data?.message || "");
+      } catch (error) {
+        console.log("error in check username", error);
+        const axiosError = error as AxiosError<{ message?: string }>;
+        setUsernameMessage(
+          axiosError?.response?.data?.message || "Error checking username"
+        );
+      } finally {
+        setIsCheckingUsername(false);
       }
     };
-    checkUserNameUnique();
+
+    checkUsername();
   }, [debouncedUsername]);
-
-  const [email, setEmail] = useState("");
-  const [emailMessage, setEmailMessage] = useState(""); //message from api on checking email validation
-  const [isCheckingEmail, setIsCheckingEmail] = useState(false); //for showing loader below email input
-  const [debouncedEmail] = useDebounceValue(email, 300);
-  useEffect(() => {
-    const checkEmailUnique = async () => {
-      if (debouncedEmail) {
-        setIsCheckingEmail(true);
-        setEmailMessage("");
-        try {
-          const response = await axios.get<ApiResponse>(
-            `/api/auth/check-email-unique?email=${debouncedEmail}`
-          );
-          setEmailMessage(response?.data?.message);
-        } catch (error) {
-          const axiosError = error as AxiosError<ApiResponse>;
-          setEmailMessage(
-            axiosError?.response?.data?.message || "Error checking email"
-          );
-        } finally {
-          setIsCheckingEmail(false);
-        }
-      }
-    };
-    checkEmailUnique();
-  }, [debouncedEmail]);
-
-  const handleProfilePictureUpload: ChangeEventHandler<HTMLInputElement> = (
-    e
-  ) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setValue("profilePicture", file);
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
-      new Promise<string>((resolve) => {
-        reader.onloadend = () => resolve(reader.result as string);
-      }).then((preview) => setProfilePictureSrc(preview));
-    }
-  };
-
-  const router = useRouter();
 
   const onSubmit = async (data: z.infer<typeof signUpSchema>) => {
     try {
-      const { fullName, email, username, password, profilePicture } = data;
-
       const formData = new FormData();
-      formData.append("profilePicture", profilePicture);
-      formData.append("fullName", fullName);
-      formData.append("email", email);
-      formData.append("username", username);
-      formData.append("password", password);
+      formData.append("fullName", data.fullName);
+      formData.append("username", data.username);
+      formData.append("password", data.password);
 
-      const response = await axios.post<ApiResponse>(
+      const response = await axios.post<{ message?: string }>(
         "/api/auth/signup",
         formData,
         {
-          headers: {
-            "Content-Type": "multipart/form-data",
-          },
+          headers: { "Content-Type": "multipart/form-data" },
         }
       );
-      toast.success(response.data.message);
-      router.replace(`/verify/${username}`);
+
+      toast.success(response.data.message || "Signup successful!");
+      router.replace(`/signin`);
     } catch (error) {
-      const axiosError = error as AxiosError<ApiResponse>;
+      const axiosError = error as AxiosError<{ message?: string }>;
       const errorMessage =
         axiosError?.response?.data?.message ||
-        "There was a problem during signup. Please try again later ";
+        "There was a problem during signup";
+
       toast.error(errorMessage);
+      setError("root", { message: errorMessage });
     }
   };
 
   return (
-    <section className="text-gray-600 body-font px-6 pt-16 flex justify-center">
-      <div className="w-full sm:w-[325px] flex flex-col">
-        <h2 className=" text-2xl md:text-3xl mb-4 font-bold title-font text-left ">
-          Get <span className="text-rose-600">Started</span> with us
-        </h2>
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-          <div className="mb-4">
-            <label htmlFor="avatar" className="leading-7 text-sm text-gray-600">
-              Profile Picture
-            </label>
+    <div className="flex min-h-screen items-center justify-center bg-background p-4">
+      <Card className="w-full max-w-md border-border bg-card rounded-xl">
+        <CardHeader className="space-y-4 text-center pb-8">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-xl bg-primary/10">
+            <TrendingUp className="h-8 w-8 text-primary" />
+          </div>
 
-            <div className="w-full flex justify-center ">
-              <div className="bg-gray-50 rounded-full overflow-hidden w-24 h-24 relative">
-                <Image
-                  src={profilePictureSrc}
-                  width={200}
-                  height={200}
-                  alt={"profilePicture"}
-                  className="w-full h-full"
-                />
-                <div className="absolute w-full h-full top-0 right-0 flex justify-center items-center">
-                  <Plus className="text-white absolute" />
-                </div>
-                <div className="absolute w-full h-full top-0 right-0 flex justify-center items-center bg-gray-600 opacity-20"></div>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleProfilePictureUpload}
-                  className="absolute z-[99] inset-0 w-full h-full opacity-0 cursor-pointer"
-                />
+          <div className="space-y-2">
+            <CardTitle className="text-3xl font-bold tracking-tight">
+              Create Account
+            </CardTitle>
+            <CardDescription className="text-muted-foreground text-base">
+              Start your Trading Journal journey
+            </CardDescription>
+          </div>
+        </CardHeader>
+
+        <CardContent className="px-6 pb-6">
+          <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+            {/* Global Error */}
+            {errors.root && (
+              <div className="flex items-center gap-2 rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
+                <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                {errors.root.message}
               </div>
+            )}
+
+            {/* Full Name */}
+            <div className="space-y-1.5">
+              <Label>Full Name</Label>
+              <Input
+                placeholder="Enter your full name"
+                {...register("fullName")}
+                className="h-11 bg-input border-border focus-visible:ring-1 focus-visible:ring-primary"
+                disabled={isSubmitting}
+              />
+              {errors.fullName && (
+                <p className="text-xs text-destructive">
+                  {errors.fullName.message}
+                </p>
+              )}
             </div>
 
-            {errors.profilePicture && (
-              <p className="text-red-500 text-sm">
-                {errors.profilePicture.message}
-              </p>
-            )}
-          </div>
+            {/* Username */}
+            <div className="space-y-1.5">
+              <Label>Username</Label>
+              <div className="relative">
+                <Input
+                  placeholder="Choose a username"
+                  {...register("username")}
+                  onChange={(e) => setUsername(e.target.value)}
+                  className="h-11 bg-input border-border focus-visible:ring-1 focus-visible:ring-primary"
+                  disabled={isSubmitting}
+                />
+                {isCheckingUsername && (
+                  <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />
+                )}
+              </div>
 
-          <div className="relative mb-4">
-            <label
-              htmlFor="fullName"
-              className="leading-7 text-sm text-gray-600"
-            >
-              Full Name
-            </label>
-            <input
-              type="text"
-              id="fullName"
-              {...register("fullName")}
-              required
-              placeholder="John Doe"
-              className="w-full bg-white rounded border border-gray-300 focus:border-rose-500 focus:ring-2 focus:ring-rose-200 text-base outline-none text-gray-700 py-1 px-3 leading-8 transition-colors duration-200 ease-in-out"
-            />
-            {errors.fullName && (
-              <p className="text-red-500 text-sm">{errors.fullName.message}</p>
-            )}
-          </div>
-          <div className="relative mb-4">
-            <label
-              htmlFor="username"
-              className="leading-7 text-sm text-gray-600"
-            >
-              Username
-            </label>
-            <input
-              type="text"
-              id="username"
-              {...register("username")}
-              onChange={(e) => {
-                setUsername(e.target.value);
-              }}
-              required
-              placeholder="johndoe"
-              className="w-full bg-white rounded border border-gray-300 focus:border-rose-500 focus:ring-2 focus:ring-rose-200 text-base outline-none text-gray-700 py-1 px-3 leading-8 transition-colors duration-200 ease-in-out"
-            />
-            {isCheckingUsername && <LoaderCircle className="animate-spin" />}
-            {!isCheckingUsername && usernameMessage && (
-              <p
-                className={`text-sm ${
-                  usernameMessage === "Username is available!"
-                    ? "text-green-500"
-                    : "text-red-500"
-                }`}
-              >
-                {usernameMessage}
-              </p>
-            )}
-          </div>
-          <div className="relative mb-4">
-            <label htmlFor="email" className="leading-7 text-sm text-gray-600">
-              Email
-            </label>
-            <input
-              type="email"
-              id="email"
-              {...register("email")}
-              onChange={(e) => {
-                setEmail(e.target.value);
-              }}
-              required
-              placeholder="johndoe@example.com"
-              className="w-full bg-white rounded border border-gray-300 focus:border-rose-500 focus:ring-2 focus:ring-rose-200 text-base outline-none text-gray-700 py-1 px-3 leading-8 transition-colors duration-200 ease-in-out"
-            />
-            {isCheckingEmail && <LoaderCircle className="animate-spin" />}
-            {!isCheckingEmail && emailMessage && (
-              <p
-                className={`text-sm ${
-                  emailMessage === "Email is available!"
-                    ? "text-green-500"
-                    : "text-red-500"
-                }`}
-              >
-                {emailMessage}
-              </p>
-            )}
-          </div>
+              {!isCheckingUsername && usernameMessage && (
+                <p
+                  className={`text-xs ${
+                    usernameMessage === "Username is available!"
+                      ? "text-green-500"
+                      : "text-destructive"
+                  }`}
+                >
+                  {usernameMessage}
+                </p>
+              )}
 
-          <div className="relative mb-4">
-            <label
-              htmlFor="password"
-              className="leading-7 text-sm text-gray-600"
+              {errors.username && (
+                <p className="text-xs text-destructive">
+                  {errors.username.message}
+                </p>
+              )}
+            </div>
+
+            {/* Password */}
+            <div className="space-y-1.5">
+              <Label>Password</Label>
+              <div className="relative">
+                <Input
+                  type={showPassword ? "text" : "password"}
+                  placeholder="Create a password"
+                  {...register("password")}
+                  className="h-11 bg-input border-border pr-10 focus-visible:ring-1 focus-visible:ring-primary"
+                  disabled={isSubmitting}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((prev) => !prev)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  {showPassword ? (
+                    <EyeOff className="w-4 h-4" />
+                  ) : (
+                    <Eye className="w-4 h-4" />
+                  )}
+                </button>
+              </div>
+              {errors.password && (
+                <p className="text-xs text-destructive">
+                  {errors.password.message}
+                </p>
+              )}
+            </div>
+
+            {/* Submit */}
+            <Button
+              type="submit"
+              disabled={isSubmitting}
+              className="w-full h-11 text-base font-medium mt-2"
             >
-              Password
-            </label>
-            <input
-              type="password"
-              id="password"
-              {...register("password")}
-              placeholder="••••••••"
-              required
-              className="w-full bg-white rounded border border-gray-300 focus:border-rose-500 focus:ring-2 focus:ring-rose-200 text-base outline-none text-gray-700 py-1 px-3 leading-8 transition-colors duration-200 ease-in-out"
-            />
-            {errors.password && (
-              <p className="text-red-500 text-sm">{errors.password.message}</p>
-            )}
-          </div>
-          <Button type="submit" className="w-full" disabled={isSubmitting}>
-            {isSubmitting && <LoaderCircle className="animate-spin text-lg" />}
-            Signup
-          </Button>
-        </form>
-        <div className="mt-5 flex items-center gap-2 justify-center text-gray-500">
-          <hr className="w-[175px] h-[2px] bg-gray-200" />
-          or
-          <hr className="w-[175px]  h-[2px] bg-gray-200" />
-        </div>
-        <p
-          className="flex gap-2 justify-end 
-                    mt-6"
-        >
-          Already have a account?
-          <Link className="text-rose-500 underline" href="/signin">
-            Signin
-          </Link>
-        </p>
-      </div>
-    </section>
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Creating account...
+                </>
+              ) : (
+                "Sign up"
+              )}
+            </Button>
+          </form>
+        </CardContent>
+
+        <CardFooter className="px-6 pt-2 pb-8">
+          <p className="text-sm text-muted-foreground text-center w-full">
+            Already have an account?{" "}
+            <Link
+              href="/signin"
+              className="font-medium text-primary hover:underline transition-colors"
+            >
+              Sign in
+            </Link>
+          </p>
+        </CardFooter>
+      </Card>
+    </div>
   );
 }
